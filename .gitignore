@@ -8,3 +8,4 @@ data/FashionMNIST/raw/train-labels-idx1-ubyte
 data/FashionMNIST/raw/train-labels-idx1-ubyte.gz
 models/__pycache__/Unet.cpython-39.pyc
 models/__pycache__/Unet.cpython-310.pyc
+__pycache__/utils.cpython-310.pyc
