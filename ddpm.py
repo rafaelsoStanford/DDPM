@@ -6,7 +6,11 @@ https://github.com/dome272/Diffusion-Models-pytorch/tree/main
 https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/denoising_diffusion_pytorch.py
 https://machinelearningmastery.com/a-gentle-introduction-to-positional-encoding-in-transformer-models-part-1/
 
-
+Denoising Diffusion Probabilistic Models (DDPM) implementation in PyTorch
+Loads the FashionMNIST dataset
+Trains a DDPM model on the dataset
+Saves a sample (n images) of the model's output after each epoch
+Saves a checkpoint of the model after each epoch
 """
 
 import os
@@ -19,6 +23,10 @@ from tqdm import tqdm
 from models.Unet import *
 from utils import *
 
+# Hyperparameters up here for convenience
+batch_size = 128
+epochs = 100
+
 
 class Diffusion:
     def __init__(self, noise_steps=100, beta_start=1e-4, beta_end=0.02, img_size=256, device="cuda"):
@@ -26,28 +34,25 @@ class Diffusion:
         self.beta_start = beta_start
         self.beta_end = beta_end
         self.img_size = img_size
-        self.device = device
+        self.device = torch.device(device)
 
-        self.beta = self.prepare_noise_schedule().to(device)
+        self.beta = self.prepare_noise_schedule().to(self.device)
         self.alpha = 1. - self.beta
         self.alpha_hat = torch.cumprod(self.alpha, dim=0)
 
     def prepare_noise_schedule(self):
-            betas = torch.linspace(self.beta_start, self.beta_end, self.noise_steps)
-            return betas
+        betas = torch.linspace(self.beta_start, self.beta_end, self.noise_steps)
+        return betas
     
     def sample_timesteps(self, batch_size):
-        return torch.randint(low=1, high=self.noise_steps, size=(batch_size,))
+        return torch.randint(low=1, high=self.noise_steps, size=(batch_size,)).to(self.device)
 
     def noise_images(self, x_0, t):
         # Input: x_0 shape = (batch_size, 1, img_size, img_size)
-        x_0 = x_0.to(self.device)   
-
+        x_0 = x_0.to(self.device)
         z = torch.randn_like(x_0) # Std normal gaussain noise with same shape as x_0
-        
         x_t = ( torch.sqrt(self.alpha_hat[t , None, None, None]) *
                         x_0 + torch.sqrt(1.0 - self.alpha_hat[t , None, None, None]) * z ) #Noisy image
-        
         return x_t, z
     
     def sample(self, model, num_of_samples):
@@ -81,12 +86,15 @@ def train(dataloader, epochs=100):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("Using {} device".format(device))
 
-    diffusion = Diffusion(img_size=28, device=device)
+    data_sample = next(iter(dataloader))
+    batch_size = data_sample[0].shape[0]
+    img_size = data_sample[0].shape[-1]
+    img_channels = data_sample[0].shape[1]
 
-    model = UNet(in_channels=1, out_channels=1, time_dim=256, device=device).to(device)
 
+    diffusion = Diffusion(img_size=img_size, device=device)
+    model = UNet(in_channels=img_channels, out_channels=img_channels, time_dim=256, device=device).to(device)
     mse = nn.MSELoss()
-
     optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
 
     for epoch in range(epochs):
@@ -95,7 +103,7 @@ def train(dataloader, epochs=100):
             images = images.to(device)
             batch_size = images.shape[0]
 
-            t = diffusion.sample_timesteps(batch_size).to(device)
+            t = diffusion.sample_timesteps(batch_size)
             x_t, noise = diffusion.noise_images(images, t)
 
             predicted_noise = model(x_t, t)
@@ -120,13 +128,12 @@ def train(dataloader, epochs=100):
         torch.save(model.state_dict(), os.path.join("models", f"ckpt.pt"))
 
 
-#MAIN:
-batch_size = 128
-training_data, test_data = get_data()
-train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
-test_dataloader = DataLoader(test_data, batch_size=batch_size, shuffle=True)
 
-train(train_dataloader)
+if __name__ == "__main__":
+    training_data, test_data = get_data()
+    train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_data, batch_size=batch_size, shuffle=True)
+    train(train_dataloader, epochs=epochs)
 
 
 
