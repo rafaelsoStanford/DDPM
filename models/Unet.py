@@ -114,7 +114,10 @@ class DownSample(nn.Module):
     ### Down-sample
 
     Each step in the contracting path down-samples the feature map with
-    a $2 \times 2$ max pooling layer.
+    a 2x2 max pooling operation with stride 2. 
+    Two Double Convolution layers are applied to the feature map before each down-sampling operation. 
+        (effectively doubling the number of channels)
+    
     """
 
     def __init__(self, in_channels: int, out_channels: int, embeddedTime_dim=256):
@@ -124,13 +127,13 @@ class DownSample(nn.Module):
         self.doubleConv1 = DoubleConvolution(in_channels, in_channels)
         self.doubleConv2 = DoubleConvolution(in_channels, out_channels)
 
-        self.emb_layer = nn.Sequential( # Brutally make dimensions match unsing a linear layer
+        self.emb_layer = nn.Sequential( # Brutally make dimensions match using a linear layer
             nn.SiLU(),
             nn.Linear(
-                embeddedTime_dim,
-                out_channels
+                embeddedTime_dim, # IN: Dimension of embedded "denoising timestep" (B, 256)
+                out_channels # OUT: Number of channels of the image (B, Channels_out)
             ),
-        )
+        ) # Trainable layer: Not sure how okay this is, some repo's do it, some don't
 
     def forward(self, x: torch.Tensor, t: torch.Tensor):
         x = self.pool(x)
@@ -138,7 +141,8 @@ class DownSample(nn.Module):
         x = self.doubleConv2(x)
 
         emb_t = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1]) # self.emb_layer(t) -> (B, C_out, 1, 1) 
-                                                                                            #-> repeat to match image dimensions -> same time value for all pixels
+                                                                                            #-> repeat to match image dimensions (B, C_out, img_s, img_s)
+                                                                                            # -> same "time" value for all pixels
         return x + emb_t
         
 
