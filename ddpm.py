@@ -64,7 +64,7 @@ class Diffusion(pl.LightningModule):
             x = torch.randn((num_of_samples, 1, self.img_size, self.img_size), device=self.device)
             for i in tqdm(reversed(range(1, self.noise_steps)), position=0):
 
-                t = ( torch.ones(num_of_samples) * i ).long() # step goes backwards for each image in batch
+                t = ( torch.ones(num_of_samples, device= x.device) * i).long() # step goes backwards for each image in batch
 
                 predicted_noise = model(x, t)
                 alpha = self.alpha[t][:, None, None, None]
@@ -107,13 +107,13 @@ class Diffusion(pl.LightningModule):
     
     def training_step(self, batch, batch_idx):
         loss = self.onepass(batch, batch_idx,mode='Train')
-        self.log("Training_loss",loss)
+        self.log("Loss/Train_loss",loss)
         self.log('lr', self.optimizers().param_groups[0]['lr'])
         return loss
     
     def validation_step(self, batch, batch_idx):
         loss = self.onepass(batch, batch_idx,mode='Val')
-        self.log("Val_loss",loss)
+        self.log("Loss/Val_loss",loss)
     
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
