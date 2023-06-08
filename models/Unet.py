@@ -193,12 +193,11 @@ class UpSample(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, time_dim=256, device="cuda"):
+    def __init__(self, in_channels: int, out_channels: int, time_dim=256):
         super(UNet, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.time_dim = time_dim
-        self.device = device
 
         # Define all layers used by U-net
         self.inc = DoubleConvolution(in_channels, 64)
@@ -238,7 +237,7 @@ class UNet(nn.Module):
     def pos_encoding(self, t, channels):
         inv_freq = 1.0 / (
             10000
-            ** (torch.arange(0, channels, 2, device=self.device).float() / channels)
+            ** (torch.arange(0, channels, 2,device=t.device) / channels)
         )
         pos_enc_a = torch.sin(t.repeat(1, channels // 2) * inv_freq)
         pos_enc_b = torch.cos(t.repeat(1, channels // 2) * inv_freq)
