@@ -58,11 +58,12 @@ class Diffusion(pl.LightningModule):
         # Output: samples of shape (num_of_samples, 1, img_size, img_size)
         with torch.no_grad():
             x = torch.randn((num_of_samples, 1, self.img_size, self.img_size), device=self.device)
+            label = torch.randint(low=0, high=10, size=(num_of_samples,),device=self.device) 
             for i in tqdm(reversed(range(1, self.noise_steps)), position=0):
 
                 t = ( torch.ones(num_of_samples, device= x.device) * i).long() # step goes backwards for each image in batch
 
-                predicted_noise = model(x, t)
+                predicted_noise = model(x, t, label)
                 alpha = self.alpha[t][:, None, None, None]
                 alpha_hat = self.alpha_hat[t][:, None, None, None]
                 beta = self.beta[t][:, None, None, None]
@@ -74,8 +75,8 @@ class Diffusion(pl.LightningModule):
                     noise = torch.zeros_like(x) # No noise
 
                 x = 1 / torch.sqrt(alpha) * (x - ((1 - alpha) / (torch.sqrt(1 - alpha_hat))) * predicted_noise) + torch.sqrt(beta) * noise
-            
-            x = (x.clamp(-1, 1) + 1) / 2
+
+            # x = (x.clamp(-1, 1) + 1) / 2
             x = (x * 255).type(torch.uint8)
             return x
 
@@ -86,17 +87,18 @@ class Diffusion(pl.LightningModule):
             self.alpha = 1. - self.beta
             self.alpha_hat = torch.cumprod(self.alpha, dim=0)
             self.flag = True
-        images, _  = batch
+        images, labels  = batch
         batch_size = images.shape[0]
+
 
         t = torch.randint(low=1, high=self.noise_steps, size=(batch_size,),device=self.device)
         x_t, noise = self.noise_images(images, t)
 
         if mode == "Val":
             with torch.no_grad():
-                predicted_noise = self.model(x_t, t)
+                predicted_noise = self.model(x_t, t, labels)
         else:
-            predicted_noise = self.model(x_t, t)
+            predicted_noise = self.model(x_t, t, labels)
 
         loss = self.loss(noise, predicted_noise)
         return loss

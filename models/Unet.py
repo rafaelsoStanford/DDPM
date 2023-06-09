@@ -53,6 +53,7 @@ class SelfAttention(nn.Module):
     """
     def __init__(self, channels):
         super().__init__()
+        self.label_size = 1
         self.channels = channels        
         self.attention = nn.MultiheadAttention(channels, 4, batch_first=True)
         self.ln = nn.LayerNorm([channels])
@@ -63,11 +64,16 @@ class SelfAttention(nn.Module):
             nn.Linear(channels, channels),
         )
 
-    def forward(self, x: torch.Tensor):
+        self.emb = embedding = nn.Embedding(10, 3) # Embedding layer: 10 labels, 3 channels
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor = None):
         size = x.shape[-1] # Sequence length
         x = x.view(-1, self.channels, size * size).swapaxes(1, 2) # View(): reshapes the tensor to the desired shape
             # -1: infer this dimension from the other given dimension; Preserve number of batches
-            # swapaxes(1, 2): swap the second and third dimension -> (B, H, W) -> (B, W, H)
+            # swapaxes(1, 2): swap the second and third dimension -> (B, C, len) -> (B, len, C)
+        if y is not None:
+            y = self.emb(y).view(-1, self.label_size, 3) # Embedding layer: 10 labels, 1 , 3 channels
+            x = torch.cat([x, y], dim=1) # Concatenate the embedding to the input
 
         x_ln = self.ln(x) # Normalize input
         attention_value, _ = self.attention(x_ln, x_ln, x_ln) #Multihead attention: Pytorch Implementation
@@ -135,6 +141,8 @@ class DownSample(nn.Module):
             ),
         ) # Trainable layer: Not sure how okay this is, some repo's do it, some don't
 
+        
+
     def forward(self, x: torch.Tensor, t: torch.Tensor):
         x = self.pool(x)
         x = self.doubleConv1(x)
@@ -193,12 +201,11 @@ class UpSample(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, time_dim=256, device="cuda"):
+    def __init__(self, in_channels: int, out_channels: int, time_dim=256):
         super(UNet, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.time_dim = time_dim
-        self.device = device
 
         # Define all layers used by U-net
         self.inc = DoubleConvolution(in_channels, 64)
@@ -210,7 +217,7 @@ class UNet(nn.Module):
         self.sa3 = SelfAttention(256)
 
         self.bot1 = DoubleConvolution(256, 512)
-        self.bot2 = DoubleConvolution(512, 512)
+        # self.bot2 = DoubleConvolution(512, 512)
         self.bot3 = DoubleConvolution(512, 256)
 
         self.up1 = UpSample(512, 128)
@@ -238,7 +245,7 @@ class UNet(nn.Module):
     def pos_encoding(self, t, channels):
         inv_freq = 1.0 / (
             10000
-            ** (torch.arange(0, channels, 2, device=self.device).float() / channels)
+            ** (torch.arange(0, channels, 2,device=t.device) / channels)
         )
         pos_enc_a = torch.sin(t.repeat(1, channels // 2) * inv_freq)
         pos_enc_b = torch.cos(t.repeat(1, channels // 2) * inv_freq)
@@ -246,7 +253,7 @@ class UNet(nn.Module):
         return pos_enc
 
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor):
+    def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor = None):
 
         # if self.time_mlp is not None:
         #     t = self.time_mlp(time) # Embed time in sinusoidal position embeddings
@@ -255,6 +262,8 @@ class UNet(nn.Module):
 
         t = t.unsqueeze(-1).type(torch.float)
         t = self.pos_encoding(t, self.time_dim) # Do the encoding
+        
+
 
         # Check if the input tensor has the 2^3 divisible image size (ie downsampling 3 times)
         x, padding = pad_to(x, 2**3)
@@ -262,22 +271,22 @@ class UNet(nn.Module):
         x1 = self.inc(x)
         
         x2 = self.down1(x1, t)
-        x2 = self.sa1(x2)
+        x2 = self.sa1(x2, y)
         x3 = self.down2(x2, t)
-        x3 = self.sa2(x3)
+        x3 = self.sa2(x3, y)
         x4 = self.down3(x3, t)
-        x4 = self.sa3(x4)
+        x4 = self.sa3(x4, y)
 
         x5 = self.bot1(x4)
         x5 = self.bot2(x5)
         x5 = self.bot3(x5)
 
         x = self.up1(x5, x3, t) # include residual connections
-        x = self.sa4(x)
+        x = self.sa4(x, y)
         x = self.up2(x, x2, t)
-        x = self.sa5(x)
+        x = self.sa5(x, y)
         x = self.up3(x, x1, t)
-        x = self.sa6(x)
+        x = self.sa6(x, y)
 
         x = self.outc(x)
 
